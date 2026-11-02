@@ -34,9 +34,17 @@ Do not add unit tests. Use high-level browser E2E tests for meaningful product j
 
 ## Deployment
 
-The live adviser needs a Node server (`/api/advice`), so the app deploys as a server app on Sites from `main`
-— not as a static export. The `Verify Harmonise build` workflow runs lint, typecheck, unit tests, and a
-production build on every push to `main`.
+Every push to `main` runs two workflows: `Verify Harmonise build` (lint, typecheck, unit tests, server
+production build) and `Deploy Harmonise to GitHub Pages` (static export of the same tree, API routes
+excluded, served under `/harmonise`).
+
+Two targets, one tree:
+
+- **Server (full features):** the live adviser and account login need Node (`/api/*` + SQLite), so run
+  `npm run dev` locally or deploy as a server app on Sites from `main`.
+- **GitHub Pages (static):** <https://sudikhya.github.io/harmonise/> serves the landing, product, and
+  connect journeys; server features degrade honestly there (account login reports unreachable, the
+  adviser shows its retry state, local alias/demo entry works fully).
 
 Model provider (runtime secrets on Sites, env vars locally):
 
