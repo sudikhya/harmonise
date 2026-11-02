@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, type NameMode } from "@/lib/connect/session";
 import { CoachDashboardPreview } from "@/components/connect/coaches";
+import { DEMO_LOGIN_ID, DEMO_LOGIN_PASSWORD } from "@/components/connect/demo-credentials";
 
 function Brand() {
   return (
@@ -89,12 +90,178 @@ function MemberForm() {
       {error ? <p className="cx-error" role="alert">{error}</p> : null}
       <div className="cx-disclaimer">
         Prototype only: Harmonise is not therapy, diagnosis, legal advice, financial advice, or emergency response.
-        No real account is created and entries reset on refresh.
+        This path creates no account and resets on refresh — use your account below to keep your space across visits.
       </div>
       <div className="cx-cta-row">
         <button type="submit" className="cx-btn cx-btn-primary cx-btn-block">Find support</button>
       </div>
     </form>
+  );
+}
+
+type AuthMode = "login" | "signup";
+
+function AuthPanel() {
+  const { dispatch } = useSession();
+  const router = useRouter();
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [name, setName] = useState("");
+  const [loginId, setLoginId] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function switchMode(next: AuthMode) {
+    setMode(next);
+    setError(null);
+  }
+
+  function fillDemo() {
+    setLoginId(DEMO_LOGIN_ID);
+    setPassword(DEMO_LOGIN_PASSWORD);
+    setError(null);
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    if (mode === "signup") {
+      if (name.trim().length === 0) {
+        setError("Choose a display name to continue.");
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginId.trim())) {
+        setError("Enter a valid email address.");
+        return;
+      }
+      if (password.length < 8) {
+        setError("Choose a password with at least 8 characters.");
+        return;
+      }
+    } else if (loginId.trim().length === 0 || password.length === 0) {
+      setError("Enter your login ID and password.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(mode === "login" ? "/api/auth/login" : "/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          mode === "login"
+            ? { email: loginId.trim(), password }
+            : { name: name.trim(), email: loginId.trim(), password },
+        ),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        id?: unknown;
+        name?: unknown;
+        email?: unknown;
+      } | null;
+      if (
+        !response.ok ||
+        !data ||
+        typeof data.id !== "number" ||
+        typeof data.name !== "string" ||
+        typeof data.email !== "string"
+      ) {
+        if (response.status === 409) {
+          setError("That login ID already has an account — try logging in instead.");
+        } else if (response.status === 401) {
+          setError("Those login details do not match an account.");
+        } else if (response.status === 429) {
+          setError("Too many attempts just now — wait a minute and try again.");
+        } else {
+          setError("Those details could not be used. Check them and try again.");
+        }
+        return;
+      }
+      dispatch({ type: "login", account: { id: data.id, name: data.name, email: data.email } });
+      router.push("/connect/member");
+    } catch {
+      setError("Harmonise could not be reached. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="cx-demo-login">
+      <p className="cx-kicker">Your account</p>
+      <p>
+        Log in or create an account to keep your space across visits. Trying the prototype? The demo
+        login works too — its credentials are shown below.
+      </p>
+      {mode === "login" ? (
+        <p className="cx-demo-creds">
+          Demo ID <code>{DEMO_LOGIN_ID}</code> · Password <code>{DEMO_LOGIN_PASSWORD}</code>
+        </p>
+      ) : null}
+      <form onSubmit={submit} noValidate aria-label={mode === "login" ? "Log in" : "Create account"}>
+        {mode === "signup" ? (
+          <div className="cx-field">
+            <label className="cx-label" htmlFor="cx-auth-name">Display name</label>
+            <input
+              id="cx-auth-name"
+              className="cx-input"
+              type="text"
+              autoComplete="nickname"
+              maxLength={40}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Quiet Fern"
+            />
+          </div>
+        ) : null}
+        <div className="cx-field">
+          <label className="cx-label" htmlFor="cx-auth-id">{mode === "login" ? "Login ID" : "New login ID"}</label>
+          <input
+            id="cx-auth-id"
+            className="cx-input"
+            type="email"
+            autoComplete="username"
+            maxLength={120}
+            value={loginId}
+            onChange={(event) => setLoginId(event.target.value)}
+            placeholder={DEMO_LOGIN_ID}
+          />
+        </div>
+        <div className="cx-field">
+          <label className="cx-label" htmlFor="cx-auth-password">{mode === "login" ? "Login password" : "New password"}</label>
+          <input
+            id="cx-auth-password"
+            className="cx-input"
+            type="password"
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            maxLength={128}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder={mode === "login" ? "Enter your password" : "At least 8 characters"}
+          />
+        </div>
+        {error ? <p className="cx-error" role="alert">{error}</p> : null}
+        <div className="cx-cta-row">
+          {mode === "login" ? (
+            <button type="button" className="cx-btn cx-btn-ghost" onClick={fillDemo}>
+              Fill demo credentials
+            </button>
+          ) : null}
+          <button type="submit" className="cx-btn cx-btn-dark cx-btn-block" disabled={busy}>
+            {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
+          </button>
+        </div>
+      </form>
+      <div className="cx-demo-row">
+        <button
+          type="button"
+          className="cx-btn cx-btn-ghost"
+          onClick={() => switchMode(mode === "login" ? "signup" : "login")}
+        >
+          {mode === "login" ? "New here? Create an account" : "Have an account? Log in"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -215,7 +382,14 @@ export default function Onboarding() {
                 Give support
               </button>
             </div>
-            {path === "member" ? <MemberForm /> : <CoachPath />}
+            {path === "member" ? (
+              <>
+                <MemberForm />
+                <AuthPanel />
+              </>
+            ) : (
+              <CoachPath />
+            )}
             <div className="cx-demo-row">
               <button type="button" className="cx-btn cx-btn-ghost" onClick={exploreDemo}>
                 Explore without entering details

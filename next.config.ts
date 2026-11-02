@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   basePath: process.env.NEXT_BASE_PATH ?? "",
   // Keep development-only Next.js chrome out of prototype screenshots.
   devIndicators: false,
+  // sql.js loads its WASM binary from disk at runtime; never bundle it.
+  serverExternalPackages: ["sql.js"],
 };
 
 export default nextConfig;

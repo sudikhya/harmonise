@@ -209,6 +209,27 @@
 .cx-path-tab[aria-selected="true"] { background: var(--cx-charcoal); color: #fff; box-shadow: var(--cx-shadow); }
 .cx-cta-row { display: grid; gap: 10px; margin-top: 16px; }
 .cx-demo-row { margin-top: 14px; text-align: center; }
+.cx-demo-login { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--cx-line); }
+.cx-demo-login > p { font-size: 14px; line-height: 1.55; color: var(--cx-muted); margin: 0 0 10px; }
+.cx-demo-creds {
+  margin: 0 0 12px;
+  padding: 10px 13px;
+  border: 1px dashed var(--cx-line);
+  border-radius: 10px;
+  background: var(--cx-mist);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--cx-forest-deep);
+}
+.cx-demo-creds code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid var(--cx-line);
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
 .cx-coach-preview { margin-top: 16px; }
 
 /* ---------- Modal ---------- */

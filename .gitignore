@@ -28,6 +28,9 @@ yarn-error.log*
 .env*.local
 .env
 
+# local SQLite database (accounts + sessions); created on first run
+/data/
+
 # vercel
 .vercel
 

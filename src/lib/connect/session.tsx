@@ -7,8 +7,14 @@ export type ConnectTab = "find" | "journey" | "circles" | "coaches";
 
 export type Contribution = { id: string; circleId: string; text: string; time: string };
 
+export type Account = { id: number; name: string; email: string };
+
 type SessionState = {
   entered: boolean;
+  /** True until the member shell has checked /api/auth/me for a cookie session. */
+  hydrating: boolean;
+  /** Set for database-backed logins; null for local alias/demo entry. */
+  account: Account | null;
   displayName: string;
   nameMode: NameMode;
   email: string;
@@ -24,6 +30,8 @@ type SessionState = {
 
 const initialState: SessionState = {
   entered: false,
+  hydrating: true,
+  account: null,
   displayName: "",
   nameMode: "alias",
   email: "",
@@ -39,6 +47,8 @@ const initialState: SessionState = {
 
 type Action =
   | { type: "enter"; displayName: string; nameMode: NameMode; email: string; demo: boolean }
+  | { type: "login"; account: Account }
+  | { type: "auth-checked" }
   | { type: "exit" }
   | { type: "set-tab"; tab: ConnectTab }
   | { type: "join"; id: string }
@@ -51,9 +61,22 @@ type Action =
 function reducer(state: SessionState, action: Action): SessionState {
   switch (action.type) {
     case "enter":
-      return { ...initialState, entered: true, displayName: action.displayName, nameMode: action.nameMode, email: action.email, demo: action.demo };
+      return { ...initialState, entered: true, hydrating: false, displayName: action.displayName, nameMode: action.nameMode, email: action.email, demo: action.demo };
+    case "login":
+      return {
+        ...initialState,
+        entered: true,
+        hydrating: false,
+        account: action.account,
+        displayName: action.account.name,
+        nameMode: "real",
+        email: action.account.email,
+        demo: false,
+      };
+    case "auth-checked":
+      return { ...state, hydrating: false };
     case "exit":
-      return initialState;
+      return { ...initialState, hydrating: false };
     case "set-tab":
       return { ...state, tab: action.tab };
     case "join":

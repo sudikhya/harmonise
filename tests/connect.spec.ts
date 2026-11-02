@@ -61,6 +61,47 @@ test.describe('Harmonise connect flow', () => {
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
   });
 
+  test('demo login shows credentials on screen and enters the member shell', async ({ page }) => {
+    await page.goto('/connect');
+    await expect(page.getByText('demo@harmonise.app').first()).toBeVisible();
+    await expect(page.getByText('harmonise-demo').first()).toBeVisible();
+    await page.getByLabel('Login ID').fill('wrong@example.com');
+    await page.getByLabel('Login password').fill('wrong-password');
+    await page.getByRole('button', { name: 'Log in', exact: true }).click();
+    await expect(page.locator('.cx-error')).toContainText('do not match');
+    await page.getByRole('button', { name: 'Fill demo credentials' }).click();
+    await page.getByRole('button', { name: 'Log in', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Find connection' })).toBeVisible();
+    await expect(page.getByText('Demo Member')).toBeVisible();
+  });
+
+  test('account signup persists across reload, and logout ends it', async ({ page }) => {
+    const email = `e2e-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}@example.com`;
+    await page.goto('/connect');
+    await page.getByRole('button', { name: 'New here? Create an account' }).click();
+    await page.getByLabel('Display name').fill('E2E Fern');
+    await page.getByLabel('New login ID').fill(email);
+    await page.getByLabel('New password').fill('e2e-password-1');
+    await page.getByRole('button', { name: 'Create account', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Find connection' })).toBeVisible();
+    await expect(page.getByText('E2E Fern')).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Find connection' })).toBeVisible();
+    await expect(page.getByText('E2E Fern')).toBeVisible();
+    await page.getByRole('button', { name: 'Log out', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Find support' })).toBeVisible();
+    await page.goto('/connect/member');
+    await expect(page.getByText('Start at the entrance')).toBeVisible();
+    await page.goto('/connect');
+    await page.getByLabel('Login ID').fill(email);
+    await page.getByLabel('Login password').fill('wrong-password');
+    await page.getByRole('button', { name: 'Log in', exact: true }).click();
+    await expect(page.locator('.cx-error')).toContainText('do not match');
+    await page.getByLabel('Login password').fill('e2e-password-1');
+    await page.getByRole('button', { name: 'Log in', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Find connection' })).toBeVisible();
+  });
+
   test('member tabs render journey, circles, and coaches', async ({ page }) => {
     await exploreDemo(page);
     await page.getByRole('button', { name: 'My journey' }).click();

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { useSession, type ConnectTab } from "@/lib/connect/session";
 import Adviser from "@/components/connect/adviser";
 import Circles from "@/components/connect/circles";
@@ -46,9 +47,57 @@ export default function MemberShell() {
   const router = useRouter();
   const active = TABS.find((tab) => tab.id === state.tab) ?? TABS[0];
 
-  function exitDemo() {
+  useEffect(() => {
+    if (state.entered || !state.hydrating) return;
+    let live = true;
+    fetch("/api/auth/me", { credentials: "same-origin" })
+      .then(async (response) => {
+        if (!live) return;
+        if (response.ok) {
+          const data = (await response.json().catch(() => null)) as {
+            id?: unknown;
+            name?: unknown;
+            email?: unknown;
+          } | null;
+          if (data && typeof data.id === "number" && typeof data.name === "string" && typeof data.email === "string") {
+            dispatch({ type: "login", account: { id: data.id, name: data.name, email: data.email } });
+            return;
+          }
+        }
+        dispatch({ type: "auth-checked" });
+      })
+      .catch(() => {
+        if (live) dispatch({ type: "auth-checked" });
+      });
+    return () => {
+      live = false;
+    };
+  }, [state.entered, state.hydrating, dispatch]);
+
+  async function exit() {
+    if (state.account) {
+      try {
+        await fetch("/api/auth/logout", { method: "POST" });
+      } catch {
+        // Local exit still applies when the server cannot be reached.
+      }
+    }
     dispatch({ type: "exit" });
     router.push("/connect");
+  }
+
+  if (!state.entered && state.hydrating) {
+    return (
+      <main className="cx-gate">
+        <div className="cx-gate-inner">
+          <section className="cx-card-white" style={{ maxWidth: "620px", margin: "60px auto" }} aria-label="Loading your space">
+            <p className="cx-kicker">Harmonise</p>
+            <h1 style={{ fontFamily: "var(--cx-ser)", fontSize: "34px", margin: "6px 0 10px" }}>Waking up your space…</h1>
+            <p className="cx-lede">One moment while your session loads.</p>
+          </section>
+        </div>
+      </main>
+    );
   }
 
   if (!state.entered) {
@@ -79,8 +128,8 @@ export default function MemberShell() {
             <button type="button" className="cx-btn cx-btn-urgent" onClick={() => dispatch({ type: "urgent", open: true })}>
               Urgent support
             </button>
-            <button type="button" className="cx-btn cx-btn-soft" onClick={exitDemo}>
-              Exit demo
+            <button type="button" className="cx-btn cx-btn-soft" onClick={exit}>
+              {state.account ? "Log out" : "Exit demo"}
             </button>
           </div>
         </div>

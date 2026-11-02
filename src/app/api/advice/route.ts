@@ -11,7 +11,6 @@ import {
 
 export const runtime = "nodejs";
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 const MAX_REFLECTION = 600;
 const MAX_STEP = 350;
 const MAX_PERSPECTIVE = 450;
@@ -86,6 +85,43 @@ const SYSTEM_PROMPT = [
   "Keep the reflection to 1-2 sentences, each step to one sentence, the perspective to 1-2 sentences.",
 ].join(" ");
 
+type ProviderConfig = {
+  url: string;
+  apiKey: string;
+  model: string;
+  keyName: string;
+  strictJsonSchema: boolean;
+};
+
+/**
+ * Model provider selection. Defaults to OpenAI; set LLM_PROVIDER=llama (or
+ * "meta") with LLAMA_API_KEY to use Meta's Llama API over its
+ * OpenAI-compatible endpoint. Unknown values fall back to OpenAI.
+ */
+function providerConfig(): ProviderConfig | null {
+  const provider = (process.env.LLM_PROVIDER ?? "openai").trim().toLowerCase();
+  if (provider === "llama" || provider === "meta") {
+    const apiKey = process.env.LLAMA_API_KEY;
+    if (!apiKey) return null;
+    return {
+      url: "https://api.llama.com/compat/v1/chat/completions",
+      apiKey,
+      model: process.env.LLAMA_MODEL ?? "Llama-4-Scout-17B-16E-Instruct",
+      keyName: "LLAMA_API_KEY",
+      strictJsonSchema: false,
+    };
+  }
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  return {
+    url: "https://api.openai.com/v1/chat/completions",
+    apiKey,
+    model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+    keyName: "OPENAI_API_KEY",
+    strictJsonSchema: true,
+  };
+}
+
 const RESPONSE_SCHEMA = {
   name: "harmonise_advice",
   strict: true,
@@ -145,9 +181,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ crisis: true });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    console.warn("advice: OPENAI_API_KEY missing");
+  const config = providerConfig();
+  if (!config) {
+    const provider = (process.env.LLM_PROVIDER ?? "openai").trim().toLowerCase();
+    const keyName = provider === "llama" || provider === "meta" ? "LLAMA_API_KEY" : "OPENAI_API_KEY";
+    console.warn(`advice: ${keyName} missing`);
     return unavailable();
   }
 
@@ -155,23 +193,33 @@ export async function POST(request: Request) {
   const started = Date.now();
   let raw: string;
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Strict JSON schema is OpenAI-only; other OpenAI-compatible providers get
+    // plain JSON mode plus an explicit instruction. Server-side validAdvice
+    // still validates everything and fails closed either way.
+    const response = await fetch(config.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiKey}` },
       body: JSON.stringify({
-        model: MODEL,
-        store: false,
+        model: config.model,
+        ...(config.strictJsonSchema ? { store: false } : {}),
         temperature: 0.7,
         max_tokens: 700,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "system",
+            content: config.strictJsonSchema
+              ? SYSTEM_PROMPT
+              : `${SYSTEM_PROMPT} Reply with a single valid JSON object and nothing else.`,
+          },
           ...history.map((turn) => ({
             role: turn.role === "user" ? "user" : "assistant",
             content: turn.text,
           })),
           { role: "user", content: message },
         ],
-        response_format: { type: "json_schema", json_schema: RESPONSE_SCHEMA },
+        response_format: config.strictJsonSchema
+          ? { type: "json_schema", json_schema: RESPONSE_SCHEMA }
+          : { type: "json_object" },
       }),
       signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
     });

@@ -35,12 +35,29 @@ Do not add unit tests. Use high-level browser E2E tests for meaningful product j
 ## Deployment
 
 The live adviser needs a Node server (`/api/advice`), so the app deploys as a server app on Sites from `main`
-— not as a static export. Configure `OPENAI_API_KEY` as a protected Sites runtime secret and
-`OPENAI_MODEL=gpt-4o-mini`. The `Verify Harmonise build` workflow runs lint, typecheck, unit tests, and a
+— not as a static export. The `Verify Harmonise build` workflow runs lint, typecheck, unit tests, and a
 production build on every push to `main`.
 
+Model provider (runtime secrets on Sites, env vars locally):
+
+- Default (OpenAI): `OPENAI_API_KEY` (protected secret), optional `OPENAI_MODEL` (default `gpt-4o-mini`).
+- Meta Llama API: `LLM_PROVIDER=llama`, `LLAMA_API_KEY` (protected secret), optional `LLAMA_MODEL`
+  (default `Llama-4-Scout-17B-16E-Instruct`). Calls go to Meta's OpenAI-compatible endpoint;
+  unknown `LLM_PROVIDER` values fall back to OpenAI.
+
 Run the server locally with `OPENAI_API_KEY=... npm run dev` (or `npm run build` + `npm start`) and open
-`/connect` for the live-adviser journey. Without a key, the adviser shows an honest retry state.
+`/connect` for the live-adviser journey. Without a key for the selected provider, the adviser shows an
+honest retry state.
+
+Entry: `/connect` offers alias/real-name member entry, a Support Coach preview, and explore-without-details
+demo mode — all local-only and reset on refresh — plus database-backed accounts: create an account or
+log in to keep your space across visits. A demo login whose credentials (`demo@harmonise.app` /
+`harmonise-demo`) are shown on screen is seeded into the database on first run.
+
+Accounts live in a file-based SQLite database (WASM engine, no native build) at `data/harmonise.db`
+(override with `HARMONISE_DB_PATH`). Passwords are scrypt-hashed; sessions are opaque tokens in an
+`HttpOnly` cookie, valid 7 days. Adviser conversations are still never stored — they are sent only to
+the configured model provider.
 
 ## Historical material
 
