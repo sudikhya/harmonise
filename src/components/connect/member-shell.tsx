@@ -107,7 +107,7 @@ export default function MemberShell() {
           <section className="cx-card-white" style={{ maxWidth: "620px", margin: "60px auto" }} aria-label="Entry required">
             <p className="cx-kicker">Harmonise</p>
             <h1 style={{ fontFamily: "var(--cx-ser)", fontSize: "34px", margin: "6px 0 10px" }}>Start at the entrance</h1>
-            <p className="cx-lede">Choose how you want to enter — it takes less than a minute, or explore the demo.</p>
+            <p className="cx-lede">Log in or create an account to enter — it takes less than a minute.</p>
             <Link className="cx-btn cx-btn-primary" href="/connect">Go to entrance</Link>
           </section>
         </div>

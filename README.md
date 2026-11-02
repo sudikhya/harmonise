@@ -43,8 +43,8 @@ Two targets, one tree:
 - **Server (full features):** the live adviser and account login need Node (`/api/*` + SQLite), so run
   `npm run dev` locally or deploy as a server app on Sites from `main`.
 - **GitHub Pages (static):** <https://sudikhya.github.io/harmonise/> serves the landing, product, and
-  connect journeys; server features degrade honestly there (account login reports unreachable, the
-  adviser shows its retry state, local alias/demo entry works fully).
+  connect journeys. The demo login works there offline; account creation, the live adviser, and the
+  agents need the server and degrade honestly (the adviser shows its retry state).
 
 Model provider (runtime secrets on Sites, env vars locally):
 
@@ -57,10 +57,10 @@ Run the server locally with `OPENAI_API_KEY=... npm run dev` (or `npm run build`
 `/connect` for the live-adviser journey. Without a key for the selected provider, the adviser shows an
 honest retry state.
 
-Entry: `/connect` offers alias/real-name member entry, a Support Coach preview, and explore-without-details
-demo mode — all local-only and reset on refresh — plus database-backed accounts: create an account or
-log in to keep your space across visits. A demo login whose credentials (`demo@harmonise.app` /
-`harmonise-demo`) are shown on screen is seeded into the database on first run.
+Entry: `/connect` is login-first — log in or create an account (18+) and all features show up.
+A Support Coach preview stays available without logging in. A demo login whose credentials
+(`demo@harmonise.app` / `harmonise-demo`) are shown on screen is seeded into the database on first
+run, and also works offline on static hosting where the API is absent.
 
 Accounts live in a file-based SQLite database (WASM engine, no native build) at `data/harmonise.db`
 (override with `HARMONISE_DB_PATH`). Passwords are scrypt-hashed; sessions are opaque tokens in an
@@ -80,7 +80,7 @@ configured model provider:
   and reviews pending proposals before they surface in `GET /api/discovery` and the “Coming up” shelf.
 
 On the static GitHub Pages build the agents cannot run: the shelf stays hidden, feeds show sample
-content, and posting stays local-only.
+content, and posting stays local-only. The demo login still works there, offline.
 
 ## Historical material
 

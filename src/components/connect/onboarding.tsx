@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { useSession, type NameMode } from "@/lib/connect/session";
+import { useSession } from "@/lib/connect/session";
 import { CoachDashboardPreview } from "@/components/connect/coaches";
 import { DEMO_LOGIN_ID, DEMO_LOGIN_PASSWORD } from "@/components/connect/demo-credentials";
 
@@ -18,87 +18,6 @@ function Brand() {
   );
 }
 
-function MemberForm() {
-  const { dispatch } = useSession();
-  const router = useRouter();
-  const [nameMode, setNameMode] = useState<NameMode>("alias");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [adult, setAdult] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (name.trim().length === 0) {
-      setError(nameMode === "alias" ? "Choose an alias to continue." : "Enter your name to continue.");
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError("Enter a valid email address.");
-      return;
-    }
-    if (!adult) {
-      setError("Please confirm you are 18 or older.");
-      return;
-    }
-    dispatch({ type: "enter", displayName: name.trim(), nameMode, email: email.trim(), demo: false });
-    router.push("/connect/member");
-  }
-
-  return (
-    <form onSubmit={submit} noValidate aria-label="Member entry">
-      <div className="cx-field" role="radiogroup" aria-label="How should Harmonise know you?">
-        <label className="cx-radio-row">
-          <input type="radio" name="nameMode" checked={nameMode === "alias"} onChange={() => setNameMode("alias")} />
-          <span><strong>Use an alias.</strong> Stay private; direct 1:1 coach requests stay off.</span>
-        </label>
-        <label className="cx-radio-row">
-          <input type="radio" name="nameMode" checked={nameMode === "real"} onChange={() => setNameMode("real")} />
-          <span><strong>Use my real name.</strong> Enables coach introduction previews.</span>
-        </label>
-      </div>
-      <div className="cx-field">
-        <label className="cx-label" htmlFor="cx-entry-name">{nameMode === "alias" ? "Your alias" : "Your name"}</label>
-        <input
-          id="cx-entry-name"
-          className="cx-input"
-          type="text"
-          autoComplete="nickname"
-          maxLength={40}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder={nameMode === "alias" ? "e.g. Quiet Fern" : "e.g. Jordan Lee"}
-        />
-      </div>
-      <div className="cx-field">
-        <label className="cx-label" htmlFor="cx-entry-email">Email</label>
-        <input
-          id="cx-entry-email"
-          className="cx-input"
-          type="email"
-          autoComplete="email"
-          maxLength={120}
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="you@example.com"
-        />
-      </div>
-      <label className="cx-check-row">
-        <input type="checkbox" checked={adult} onChange={(event) => setAdult(event.target.checked)} />
-        <span>I confirm I am 18 or older.</span>
-      </label>
-      {error ? <p className="cx-error" role="alert">{error}</p> : null}
-      <div className="cx-disclaimer">
-        Prototype only: Harmonise is not therapy, diagnosis, legal advice, financial advice, or emergency response.
-        This path creates no account and resets on refresh — use your account below to keep your space across visits.
-      </div>
-      <div className="cx-cta-row">
-        <button type="submit" className="cx-btn cx-btn-primary cx-btn-block">Find support</button>
-      </div>
-    </form>
-  );
-}
-
 type AuthMode = "login" | "signup";
 
 function AuthPanel() {
@@ -108,6 +27,7 @@ function AuthPanel() {
   const [name, setName] = useState("");
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
+  const [adult, setAdult] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -138,12 +58,23 @@ function AuthPanel() {
         setError("Choose a password with at least 8 characters.");
         return;
       }
+      if (!adult) {
+        setError("Please confirm you are 18 or older.");
+        return;
+      }
     } else if (loginId.trim().length === 0 || password.length === 0) {
       setError("Enter your login ID and password.");
       return;
     }
     setBusy(true);
     setError(null);
+    // Static hosting has no API: the demo login works offline instead.
+    const offlineDemo =
+      mode === "login" && loginId.trim() === DEMO_LOGIN_ID && password === DEMO_LOGIN_PASSWORD;
+    function enterOfflineDemo() {
+      dispatch({ type: "login", account: { id: 0, name: "Demo Member", email: DEMO_LOGIN_ID } });
+      router.push("/connect/member");
+    }
     try {
       const response = await fetch(mode === "login" ? "/api/auth/login" : "/api/auth/signup", {
         method: "POST",
@@ -154,6 +85,16 @@ function AuthPanel() {
             : { name: name.trim(), email: loginId.trim(), password },
         ),
       });
+      if (response.status === 404) {
+        if (offlineDemo) {
+          enterOfflineDemo();
+        } else if (mode === "signup") {
+          setError("Account creation needs a connection. Log in with the demo credentials shown above.");
+        } else {
+          setError("Harmonise could not be reached. Log in with the demo credentials shown above.");
+        }
+        return;
+      }
       const data = (await response.json().catch(() => null)) as {
         id?: unknown;
         name?: unknown;
@@ -180,7 +121,13 @@ function AuthPanel() {
       dispatch({ type: "login", account: { id: data.id, name: data.name, email: data.email } });
       router.push("/connect/member");
     } catch {
-      setError("Harmonise could not be reached. Check your connection and try again.");
+      if (offlineDemo) {
+        enterOfflineDemo();
+      } else if (mode === "signup") {
+        setError("Account creation needs a connection. Log in with the demo credentials shown above.");
+      } else {
+        setError("Harmonise could not be reached. Log in with the demo credentials shown above.");
+      }
     } finally {
       setBusy(false);
     }
@@ -240,7 +187,16 @@ function AuthPanel() {
             placeholder={mode === "login" ? "Enter your password" : "At least 8 characters"}
           />
         </div>
+        {mode === "signup" ? (
+          <label className="cx-check-row">
+            <input type="checkbox" checked={adult} onChange={(event) => setAdult(event.target.checked)} />
+            <span>I confirm I am 18 or older.</span>
+          </label>
+        ) : null}
         {error ? <p className="cx-error" role="alert">{error}</p> : null}
+        <div className="cx-disclaimer">
+          Prototype only: Harmonise is not therapy, diagnosis, legal advice, financial advice, or emergency response.
+        </div>
         <div className="cx-cta-row">
           {mode === "login" ? (
             <button type="button" className="cx-btn cx-btn-ghost" onClick={fillDemo}>
@@ -311,14 +267,7 @@ function CoachPath() {
 }
 
 export default function Onboarding() {
-  const { dispatch } = useSession();
-  const router = useRouter();
   const [path, setPath] = useState<"member" | "coach">("member");
-
-  function exploreDemo() {
-    dispatch({ type: "enter", displayName: "Guest explorer", nameMode: "alias", email: "", demo: true });
-    router.push("/connect/member");
-  }
 
   return (
     <main className="cx-gate">
@@ -382,19 +331,7 @@ export default function Onboarding() {
                 Give support
               </button>
             </div>
-            {path === "member" ? (
-              <>
-                <MemberForm />
-                <AuthPanel />
-              </>
-            ) : (
-              <CoachPath />
-            )}
-            <div className="cx-demo-row">
-              <button type="button" className="cx-btn cx-btn-ghost" onClick={exploreDemo}>
-                Explore without entering details
-              </button>
-            </div>
+            {path === "member" ? <AuthPanel /> : <CoachPath />}
           </section>
         </div>
       </div>
