@@ -67,6 +67,21 @@ Accounts live in a file-based SQLite database (WASM engine, no native build) at 
 `HttpOnly` cookie, valid 7 days. Adviser conversations are still never stored — they are sent only to
 the configured model provider.
 
+Guests can talk with the adviser and discover communities; joining any community needs an account —
+guests are asked to log in at the join step. Members post in joined circles (`POST /api/circles/:id/posts`);
+posts are shared with that circle only.
+
+Two background agents run inside the server on a 20s tick (plus a kick after each post), on the
+configured model provider:
+
+- **Discovery** mines verified-clean circle posts for recurring themes and drafts new-community
+  proposals, refining the wording with the model when a key is configured.
+- **Verification** scans new posts for spam/safety (flagged posts leave the feeds for human review)
+  and reviews pending proposals before they surface in `GET /api/discovery` and the “Coming up” shelf.
+
+On the static GitHub Pages build the agents cannot run: the shelf stays hidden, feeds show sample
+content, and posting stays local-only.
+
 ## Historical material
 
 Older product specs, captures, recorded films, scorecards, review reports, and legacy source live under [archive/](archive/). They are not loaded by the application.

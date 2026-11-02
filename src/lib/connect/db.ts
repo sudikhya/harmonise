@@ -69,6 +69,26 @@ async function getDb(): Promise<Database> {
       expires_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE TABLE IF NOT EXISTS posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      circle_id TEXT NOT NULL,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      author TEXT NOT NULL,
+      text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ok',
+      scanned INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_posts_circle ON posts(circle_id);
+    CREATE TABLE IF NOT EXISTS proposals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      theme TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      strength INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL
+    );
   `);
   // Seed the on-screen demo login on first run; INSERT OR IGNORE keeps
   // reruns and existing databases untouched.
@@ -202,6 +222,206 @@ export async function deleteExpiredSessions(now: number): Promise<void> {
   const stmt = database.prepare("DELETE FROM sessions WHERE expires_at <= $now");
   try {
     stmt.run({ $now: now });
+  } finally {
+    stmt.free();
+  }
+  persist();
+}
+
+export type CirclePost = {
+  id: number;
+  circleId: string;
+  author: string;
+  text: string;
+  createdAt: string;
+};
+
+export async function createPost(
+  circleId: string,
+  userId: number | null,
+  author: string,
+  text: string,
+): Promise<CirclePost> {
+  const database = await getDb();
+  const createdAt = new Date().toISOString();
+  const stmt = database.prepare(
+    "INSERT INTO posts (circle_id, user_id, author, text, created_at) VALUES ($circle, $user, $author, $text, $at)",
+  );
+  try {
+    stmt.run({ $circle: circleId, $user: userId, $author: author, $text: text, $at: createdAt });
+  } finally {
+    stmt.free();
+  }
+  persist();
+  const id = Number(database.exec("SELECT last_insert_rowid() AS id")[0]?.values[0]?.[0] ?? 0);
+  return { id, circleId, author, text, createdAt };
+}
+
+function rowsToPosts(database: Database, sql: string, params: Record<string, SqlValue>): CirclePost[] {
+  const stmt = database.prepare(sql);
+  const posts: CirclePost[] = [];
+  try {
+    stmt.bind(params);
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as Record<string, unknown>;
+      if (
+        typeof row.id === "number" &&
+        typeof row.circle_id === "string" &&
+        typeof row.author === "string" &&
+        typeof row.text === "string" &&
+        typeof row.created_at === "string"
+      ) {
+        posts.push({ id: row.id, circleId: row.circle_id, author: row.author, text: row.text, createdAt: row.created_at });
+      }
+    }
+    return posts;
+  } finally {
+    stmt.free();
+  }
+}
+
+/** Recent visible posts for a circle feed. Flagged posts stay hidden. */
+export async function listCirclePosts(circleId: string, limit: number): Promise<CirclePost[]> {
+  const database = await getDb();
+  return rowsToPosts(
+    database,
+    "SELECT id, circle_id, author, text, created_at FROM posts WHERE circle_id = $circle AND status = 'ok' ORDER BY id DESC LIMIT $limit",
+    { $circle: circleId, $limit: limit },
+  );
+}
+
+export type UnscannedPost = { id: number; text: string };
+
+export async function unscannedPosts(limit: number): Promise<UnscannedPost[]> {
+  const database = await getDb();
+  const stmt = database.prepare("SELECT id, text FROM posts WHERE scanned = 0 ORDER BY id ASC LIMIT $limit");
+  const posts: UnscannedPost[] = [];
+  try {
+    stmt.bind({ $limit: limit });
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as Record<string, unknown>;
+      if (typeof row.id === "number" && typeof row.text === "string") posts.push({ id: row.id, text: row.text });
+    }
+    return posts;
+  } finally {
+    stmt.free();
+  }
+}
+
+export async function markPostScanned(id: number, status: "ok" | "flagged"): Promise<void> {
+  const database = await getDb();
+  const stmt = database.prepare("UPDATE posts SET scanned = 1, status = $status WHERE id = $id");
+  try {
+    stmt.run({ $status: status, $id: id });
+  } finally {
+    stmt.free();
+  }
+  persist();
+}
+
+/** Texts the discovery agent may mine: verified-clean posts only. */
+export async function verifiedPostTexts(limit: number): Promise<string[]> {
+  const database = await getDb();
+  const stmt = database.prepare(
+    "SELECT text FROM posts WHERE scanned = 1 AND status = 'ok' ORDER BY id DESC LIMIT $limit",
+  );
+  const texts: string[] = [];
+  try {
+    stmt.bind({ $limit: limit });
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as Record<string, unknown>;
+      if (typeof row.text === "string") texts.push(row.text);
+    }
+    return texts;
+  } finally {
+    stmt.free();
+  }
+}
+
+export type Proposal = {
+  id: number;
+  theme: string;
+  name: string;
+  description: string;
+  strength: number;
+  status: string;
+};
+
+function rowsToProposals(database: Database, sql: string, params: Record<string, SqlValue>): Proposal[] {
+  const stmt = database.prepare(sql);
+  const proposals: Proposal[] = [];
+  try {
+    stmt.bind(params);
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as Record<string, unknown>;
+      if (
+        typeof row.id === "number" &&
+        typeof row.theme === "string" &&
+        typeof row.name === "string" &&
+        typeof row.description === "string" &&
+        typeof row.strength === "number" &&
+        typeof row.status === "string"
+      ) {
+        proposals.push({ id: row.id, theme: row.theme, name: row.name, description: row.description, strength: row.strength, status: row.status });
+      }
+    }
+    return proposals;
+  } finally {
+    stmt.free();
+  }
+}
+
+/** Insert or refresh a discovery proposal. Review status is never reset. */
+export async function upsertProposal(
+  theme: string,
+  name: string,
+  description: string,
+  strength: number,
+): Promise<void> {
+  const database = await getDb();
+  const stmt = database.prepare(
+    `INSERT INTO proposals (theme, name, description, strength, created_at)
+     VALUES ($theme, $name, $description, $strength, $at)
+     ON CONFLICT(theme) DO UPDATE SET strength = $strength`,
+  );
+  try {
+    stmt.run({ $theme: theme, $name: name, $description: description, $strength: strength, $at: new Date().toISOString() });
+  } finally {
+    stmt.free();
+  }
+  persist();
+}
+
+export async function pendingProposals(): Promise<Proposal[]> {
+  const database = await getDb();
+  return rowsToProposals(database, "SELECT id, theme, name, description, strength, status FROM proposals WHERE status = 'pending' ORDER BY strength DESC", {});
+}
+
+export async function approvedProposals(): Promise<Proposal[]> {
+  const database = await getDb();
+  return rowsToProposals(
+    database,
+    "SELECT id, theme, name, description, strength, status FROM proposals WHERE status = 'approved' ORDER BY strength DESC",
+    {},
+  );
+}
+
+export async function setProposalStatus(id: number, status: "approved" | "rejected"): Promise<void> {
+  const database = await getDb();
+  const stmt = database.prepare("UPDATE proposals SET status = $status WHERE id = $id");
+  try {
+    stmt.run({ $status: status, $id: id });
+  } finally {
+    stmt.free();
+  }
+  persist();
+}
+
+export async function refineProposal(id: number, name: string, description: string): Promise<void> {
+  const database = await getDb();
+  const stmt = database.prepare("UPDATE proposals SET name = $name, description = $description WHERE id = $id");
+  try {
+    stmt.run({ $name: name, $description: description, $id: id });
   } finally {
     stmt.free();
   }

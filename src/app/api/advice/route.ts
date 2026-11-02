@@ -8,6 +8,7 @@ import {
   cleanHistory,
   type AdviceResult,
 } from "@/lib/connect/advice";
+import { chatJson, providerConfig, providerKeyName } from "@/lib/connect/llm";
 
 export const runtime = "nodejs";
 
@@ -85,43 +86,6 @@ const SYSTEM_PROMPT = [
   "Keep the reflection to 1-2 sentences, each step to one sentence, the perspective to 1-2 sentences.",
 ].join(" ");
 
-type ProviderConfig = {
-  url: string;
-  apiKey: string;
-  model: string;
-  keyName: string;
-  strictJsonSchema: boolean;
-};
-
-/**
- * Model provider selection. Defaults to OpenAI; set LLM_PROVIDER=llama (or
- * "meta") with LLAMA_API_KEY to use Meta's Llama API over its
- * OpenAI-compatible endpoint. Unknown values fall back to OpenAI.
- */
-function providerConfig(): ProviderConfig | null {
-  const provider = (process.env.LLM_PROVIDER ?? "openai").trim().toLowerCase();
-  if (provider === "llama" || provider === "meta") {
-    const apiKey = process.env.LLAMA_API_KEY;
-    if (!apiKey) return null;
-    return {
-      url: "https://api.llama.com/compat/v1/chat/completions",
-      apiKey,
-      model: process.env.LLAMA_MODEL ?? "Llama-4-Scout-17B-16E-Instruct",
-      keyName: "LLAMA_API_KEY",
-      strictJsonSchema: false,
-    };
-  }
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return {
-    url: "https://api.openai.com/v1/chat/completions",
-    apiKey,
-    model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-    keyName: "OPENAI_API_KEY",
-    strictJsonSchema: true,
-  };
-}
-
 const RESPONSE_SCHEMA = {
   name: "harmonise_advice",
   strict: true,
@@ -183,69 +147,34 @@ export async function POST(request: Request) {
 
   const config = providerConfig();
   if (!config) {
-    const provider = (process.env.LLM_PROVIDER ?? "openai").trim().toLowerCase();
-    const keyName = provider === "llama" || provider === "meta" ? "LLAMA_API_KEY" : "OPENAI_API_KEY";
-    console.warn(`advice: ${keyName} missing`);
+    console.warn(`advice: ${providerKeyName()} missing`);
     return unavailable();
   }
 
   const history = cleanHistory(record.history).slice(-MAX_HISTORY_TURNS);
   const started = Date.now();
-  let raw: string;
-  try {
-    // Strict JSON schema is OpenAI-only; other OpenAI-compatible providers get
-    // plain JSON mode plus an explicit instruction. Server-side validAdvice
-    // still validates everything and fails closed either way.
-    const response = await fetch(config.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify({
-        model: config.model,
-        ...(config.strictJsonSchema ? { store: false } : {}),
-        temperature: 0.7,
-        max_tokens: 700,
-        messages: [
-          {
-            role: "system",
-            content: config.strictJsonSchema
-              ? SYSTEM_PROMPT
-              : `${SYSTEM_PROMPT} Reply with a single valid JSON object and nothing else.`,
-          },
-          ...history.map((turn) => ({
-            role: turn.role === "user" ? "user" : "assistant",
-            content: turn.text,
-          })),
-          { role: "user", content: message },
-        ],
-        response_format: config.strictJsonSchema
-          ? { type: "json_schema", json_schema: RESPONSE_SCHEMA }
-          : { type: "json_object" },
-      }),
-      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
-    });
-    if (!response.ok) {
-      console.warn(`advice: model HTTP ${response.status} after ${Date.now() - started}ms`);
-      return unavailable(response.status === 429 ? 503 : 502);
-    }
-    const data = (await response.json()) as {
-      choices?: { message?: { content?: unknown } }[];
-    };
-    const content = data.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || content.length === 0) {
-      console.warn("advice: empty model content");
-      return unavailable(502);
-    }
-    raw = content;
-  } catch {
-    console.warn(`advice: model request failed after ${Date.now() - started}ms`);
-    return unavailable();
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    console.warn("advice: model returned non-JSON");
+  // Strict JSON schema is OpenAI-only; other OpenAI-compatible providers get
+  // plain JSON mode plus an explicit instruction. Server-side validAdvice
+  // still validates everything and fails closed either way.
+  const parsed = await chatJson(
+    config,
+    [
+      {
+        role: "system",
+        content: config.strictJsonSchema
+          ? SYSTEM_PROMPT
+          : `${SYSTEM_PROMPT} Reply with a single valid JSON object and nothing else.`,
+      },
+      ...history.map((turn) => ({
+        role: (turn.role === "user" ? "user" : "assistant") as "user" | "assistant",
+        content: turn.text,
+      })),
+      { role: "user" as const, content: message },
+    ],
+    { timeoutMs: LLM_TIMEOUT_MS, jsonSchema: RESPONSE_SCHEMA },
+  );
+  if (parsed === null) {
+    console.warn(`advice: model unavailable after ${Date.now() - started}ms`);
     return unavailable(502);
   }
   const advice = validAdvice(parsed);

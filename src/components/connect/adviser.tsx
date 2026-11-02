@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { detectCrisis } from "@/lib/connect/catalog";
+import { useRouter } from "next/navigation";
+import { detectCrisis, getCommunity } from "@/lib/connect/catalog";
 import { MAX_MESSAGE_LENGTH, type AdviceResult, type HistoryTurn } from "@/lib/connect/advice";
 import { useSession } from "@/lib/connect/session";
-import { CommunityCard } from "@/components/connect/community-cards";
+import { CommunityCard, LoginPrompt } from "@/components/connect/community-cards";
 
 const AI_DISCLAIMER = "AI can be wrong. Use your judgment and consult a qualified professional for legal, medical, or financial decisions.";
 
@@ -32,9 +33,11 @@ function isAdvicePayload(value: unknown): value is AdviceResult {
 
 export default function Adviser() {
   const { state, dispatch } = useSession();
+  const router = useRouter();
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [loginPrompt, setLoginPrompt] = useState<string | null>(null);
   const timers = useRef<number[]>([]);
 
   useEffect(() => () => {
@@ -114,6 +117,14 @@ export default function Adviser() {
     timers.current.push(timer);
   }
 
+  function join(id: string) {
+    if (!state.account) {
+      setLoginPrompt(id);
+      return;
+    }
+    dispatch({ type: "join", id });
+  }
+
   return (
     <section className="cx-adviser cx-card-white" aria-label="Harmonise Adviser">
       <div className="cx-adviser-head">
@@ -179,7 +190,7 @@ export default function Adviser() {
                           joined={state.joined.includes(match.id)}
                           nameMode={state.nameMode}
                           displayName={state.displayName}
-                          onJoin={(id) => dispatch({ type: "join", id })}
+                          onJoin={join}
                           onOpen={() => dispatch({ type: "set-tab", tab: "circles" })}
                         />
                       ))}
@@ -224,6 +235,16 @@ export default function Adviser() {
           <span>{draft.trim().length}/{MAX_MESSAGE_LENGTH}</span>
         </div>
       </form>
+      {loginPrompt ? (
+        <LoginPrompt
+          circleName={getCommunity(loginPrompt)?.name ?? "this community"}
+          onLogin={() => {
+            setLoginPrompt(null);
+            router.push("/connect");
+          }}
+          onClose={() => setLoginPrompt(null)}
+        />
+      ) : null}
     </section>
   );
 }

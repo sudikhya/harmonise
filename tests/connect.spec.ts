@@ -102,6 +102,101 @@ test.describe('Harmonise connect flow', () => {
     await expect(page.getByRole('button', { name: 'Find connection' })).toBeVisible();
   });
 
+  test('guests can discover but must log in to join', async ({ page }) => {
+    await page.route('**/api/advice', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          reflection: 'Rent pressure has been weighing on you.',
+          steps: ['List this month’s fixed bills.', 'Name one person you could tell.'],
+          perspective: 'Naming the pressure is already a first step.',
+          matches: [{ id: 'steady-ground', reason: 'Uncertainty and money worry fit here.' }],
+        }),
+      }),
+    );
+    await page.goto('/connect');
+    await page.getByRole('button', { name: 'Explore without entering details' }).click();
+    await page.getByPlaceholder('Share what is happening, in your own words…').fill('Rent is crushing me lately.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByRole('button', { name: /show relevant communities/ }).click();
+    await expect(page.getByText('Communities that may understand')).toBeVisible();
+    const card = page.locator('article', { hasText: 'Finding steady ground' });
+    await card.getByRole('button', { name: /Join as/ }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByText('Log in to join Finding steady ground.')).toBeVisible();
+    await page.getByRole('button', { name: 'Not now' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await card.getByRole('button', { name: /Join as/ }).click();
+    await page.getByRole('button', { name: 'Go to login' }).click();
+    await expect(page.getByRole('tab', { name: 'Find support' })).toBeVisible();
+  });
+
+  test('logged-in members can join a discovered community', async ({ page }) => {
+    await page.route('**/api/advice', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          reflection: 'Rent pressure has been weighing on you.',
+          steps: ['List this month’s fixed bills.', 'Name one person you could tell.'],
+          perspective: 'Naming the pressure is already a first step.',
+          matches: [{ id: 'steady-ground', reason: 'Uncertainty and money worry fit here.' }],
+        }),
+      }),
+    );
+    await page.goto('/connect');
+    await page.getByRole('button', { name: 'Fill demo credentials' }).click();
+    await page.getByRole('button', { name: 'Log in', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Find connection' })).toBeVisible();
+    await page.getByPlaceholder('Share what is happening, in your own words…').fill('Rent is crushing me lately.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByRole('button', { name: /show relevant communities/ }).click();
+    await expect(page.getByText('Communities that may understand')).toBeVisible();
+    const card = page.locator('article', { hasText: 'Finding steady ground' });
+    await card.getByRole('button', { name: /Join as/ }).click();
+    await expect(card.getByRole('button', { name: 'Open in My circles' })).toBeVisible();
+    await page.getByRole('button', { name: 'My circles', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Finding steady ground' })).toBeVisible();
+  });
+
+  test('posting in a circle surfaces a coming-up community', async ({ page }) => {
+    const email = `e2e-disc-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}@example.com`;
+    await page.route('**/api/advice', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          reflection: 'Rent pressure has been weighing on you.',
+          steps: ['List this month’s fixed bills.', 'Name one person you could tell.'],
+          perspective: 'Naming the pressure is already a first step.',
+          matches: [{ id: 'steady-ground', reason: 'Uncertainty and money worry fit here.' }],
+        }),
+      }),
+    );
+    await page.goto('/connect');
+    await page.getByRole('button', { name: 'New here? Create an account' }).click();
+    await page.getByLabel('Display name').fill('Disc Fern');
+    await page.getByLabel('New login ID').fill(email);
+    await page.getByLabel('New password').fill('e2e-password-1');
+    await page.getByRole('button', { name: 'Create account', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Find connection' })).toBeVisible();
+    await page.getByPlaceholder('Share what is happening, in your own words…').fill('Hello, I need steady ground.');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByRole('button', { name: /show relevant communities/ }).click();
+    await expect(page.getByText('Communities that may understand')).toBeVisible();
+    const card = page.locator('article', { hasText: 'Finding steady ground' });
+    await card.getByRole('button', { name: /Join as/ }).click();
+    await page.getByRole('button', { name: 'My circles', exact: true }).click();
+    const composer = page.getByLabel('Share with this circle (prototype)');
+    await composer.fill('My rent went up again and I cannot afford it.');
+    await page.getByRole('button', { name: /Post to circle/ }).click();
+    await composer.fill('The bills keep piling up every single month.');
+    await page.getByRole('button', { name: /Post to circle/ }).click();
+    await expect(page.getByRole('heading', { name: 'New communities forming' })).toBeVisible({ timeout: 45000 });
+    await expect(page.getByText('Money pressure, calmly')).toBeVisible();
+  });
+
   test('member tabs render journey, circles, and coaches', async ({ page }) => {
     await exploreDemo(page);
     await page.getByRole('button', { name: 'My journey' }).click();
